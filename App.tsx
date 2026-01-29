@@ -6,51 +6,103 @@ import Library from './components/Library';
 
 const DEFAULT_VERSE_TEXT = "I can do all things through Christ who strengthens me.";
 const DEFAULT_VERSE_REF = "Philippians 4:13";
-const FAVORITES_KEY = 'memorize_favorites';
+const PERSISTENCE_KEYS = {
+  FAVORITES: 'memorize_favorites',
+  SETTINGS: 'memorize_settings',
+  CURRENT_VERSE: 'memorize_current_verse'
+};
+
+interface SavedSettings {
+  difficulty: Difficulty;
+  version: string;
+  inputMode: InputMode;
+}
+
+interface SavedVerseState {
+  reference: string;
+  text: string;
+  isMastered: boolean;
+}
 
 const App: React.FC = () => {
-  const [verse, setVerse] = useState<Verse | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showLibrary, setShowLibrary] = useState(false);
-  const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.MEDIUM);
-  const [version, setVersion] = useState<string>('en-kjv');
-  const [inputMode, setInputMode] = useState<InputMode>(InputMode.REVEAL);
-  const [isMastered, setIsMastered] = useState(false);
-  const [favorites, setFavorites] = useState<FavoriteVerse[]>([]);
-  
-  // Track shaking for incorrect input
-  const [isShaking, setIsShaking] = useState(false);
+  // Load saved data for initial state
+  const loadSavedFavorites = (): FavoriteVerse[] => {
+    const saved = localStorage.getItem(PERSISTENCE_KEYS.FAVORITES);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error("Failed to parse favorites", e); }
+    }
+    return [];
+  };
 
-  // Load favorites from local storage
-  useEffect(() => {
-    const saved = localStorage.getItem(FAVORITES_KEY);
+  const loadSavedSettings = (): SavedSettings => {
+    const saved = localStorage.getItem(PERSISTENCE_KEYS.SETTINGS);
     if (saved) {
       try {
-        setFavorites(JSON.parse(saved));
-      } catch (e) {
-        console.error("Failed to parse favorites", e);
-      }
+        const parsed = JSON.parse(saved);
+        return {
+          difficulty: parsed.difficulty ?? Difficulty.MEDIUM,
+          version: parsed.version ?? 'en-kjv',
+          inputMode: parsed.inputMode ?? InputMode.REVEAL
+        };
+      } catch (e) { console.error("Failed to parse settings", e); }
     }
-  }, []);
+    return { difficulty: Difficulty.MEDIUM, version: 'en-kjv', inputMode: InputMode.REVEAL };
+  };
 
-  // Save favorites to local storage
+  const loadSavedVerse = (): SavedVerseState | null => {
+    const saved = localStorage.getItem(PERSISTENCE_KEYS.CURRENT_VERSE);
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { console.error("Failed to parse current verse", e); }
+    }
+    return null;
+  };
+
+  const [favorites, setFavorites] = useState<FavoriteVerse[]>(loadSavedFavorites);
+  const settings = loadSavedSettings();
+  const [difficulty, setDifficulty] = useState<Difficulty>(settings.difficulty);
+  const [version, setVersion] = useState<string>(settings.version);
+  const [inputMode, setInputMode] = useState<InputMode>(settings.inputMode);
+
+  const initialVerseState = loadSavedVerse();
+  const [verse, setVerse] = useState<Verse | null>(null);
+  const [isMastered, setIsMastered] = useState(initialVerseState?.isMastered ?? false);
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [isShaking, setIsShaking] = useState(false);
+
+  // Save changes to localStorage
   useEffect(() => {
-    localStorage.setItem(FAVORITES_KEY, JSON.stringify(favorites));
+    localStorage.setItem(PERSISTENCE_KEYS.FAVORITES, JSON.stringify(favorites));
   }, [favorites]);
 
-  const initializeVerse = useCallback((ref: string, text: string, diff: Difficulty) => {
+  useEffect(() => {
+    localStorage.setItem(PERSISTENCE_KEYS.SETTINGS, JSON.stringify({ difficulty, version, inputMode }));
+  }, [difficulty, version, inputMode]);
+
+  useEffect(() => {
+    if (verse) {
+      localStorage.setItem(PERSISTENCE_KEYS.CURRENT_VERSE, JSON.stringify({
+        reference: verse.reference,
+        text: verse.text,
+        isMastered
+      }));
+    }
+  }, [verse, isMastered]);
+
+  const initializeVerse = useCallback((ref: string, text: string, diff: Difficulty, preserveMastery = false) => {
     const rawWords = text.trim().split(/\s+/);
     const words: VerseWord[] = rawWords.map((word, index) => {
-      const isVisibleByDefault = diff === Difficulty.EXTREME 
-        ? false 
+      const isVisibleByDefault = diff === Difficulty.EXTREME
+        ? false
         : (index === 0 || (index === rawWords.length - 1 && rawWords.length > 3));
-      
-      const shouldBeHidden = diff === Difficulty.EXTREME 
-        ? true 
+
+      const shouldBeHidden = diff === Difficulty.EXTREME
+        ? true
         : (!isVisibleByDefault && (diff === Difficulty.NONE ? false : Math.random() < diff));
-      
+
       return {
-        text: word.replace(/[.,!?;:"]/g, '').toLowerCase(), // clean text for matching
+        text: word.replace(/[.,!?;:"]/g, '').toLowerCase(),
         displayText: word,
         isHidden: shouldBeHidden,
         isRevealed: false,
@@ -59,11 +111,34 @@ const App: React.FC = () => {
     });
 
     setVerse({ reference: ref, text, words });
-    const hasHiddenWords = words.some(w => w.isHidden);
-    setIsMastered(!hasHiddenWords);
+
+    if (!preserveMastery) {
+      const hasHiddenWords = words.some(w => w.isHidden);
+      setIsMastered(!hasHiddenWords);
+    }
   }, []);
 
+  // Initial load logic
+  const hasInitialized = useRef(false);
   useEffect(() => {
+    if (hasInitialized.current) return;
+    hasInitialized.current = true;
+
+    const saved = loadSavedVerse();
+    if (saved) {
+      initializeVerse(saved.reference, saved.text, difficulty, true);
+    } else {
+      initializeVerse(DEFAULT_VERSE_REF, DEFAULT_VERSE_TEXT, difficulty);
+    }
+  }, [initializeVerse, difficulty]);
+
+  // Handle difficulty changes after initial load
+  const isFirstDifficultyChange = useRef(true);
+  useEffect(() => {
+    if (isFirstDifficultyChange.current) {
+      isFirstDifficultyChange.current = false;
+      return;
+    }
     const currentRef = verse?.reference || DEFAULT_VERSE_REF;
     const currentText = verse?.text || DEFAULT_VERSE_TEXT;
     initializeVerse(currentRef, currentText, difficulty);
@@ -77,7 +152,7 @@ const App: React.FC = () => {
 
   const handleRevealNext = useCallback(() => {
     if (!verse) return;
-    
+
     if (isMastered) {
       initializeVerse(verse.reference, verse.text, difficulty);
       return;
@@ -117,7 +192,6 @@ const App: React.FC = () => {
       if (typedChar === firstChar) {
         handleRevealNext();
       } else {
-        // Optional: shake effect on mistake
         setIsShaking(true);
         setTimeout(() => setIsShaking(false), 300);
       }
@@ -135,13 +209,13 @@ const App: React.FC = () => {
     const newWords = [...verse.words];
     newWords[firstHidden] = { ...newWords[firstHidden], showHint: true };
     setVerse({ ...verse, words: newWords });
-    
+
     setTimeout(() => {
       setVerse(prev => {
         if (!prev) return null;
         const resetWords = [...prev.words];
         if (resetWords[firstHidden]) {
-           resetWords[firstHidden] = { ...resetWords[firstHidden], showHint: false };
+          resetWords[firstHidden] = { ...resetWords[firstHidden], showHint: false };
         }
         return { ...prev, words: resetWords };
       });
@@ -186,7 +260,7 @@ const App: React.FC = () => {
     <div className="flex flex-col h-screen h-[100dvh] overflow-hidden">
       <header className="flex items-center p-4 pb-2 justify-between shrink-0 bg-paper-bg/80 backdrop-blur-sm z-20">
         <div className="flex size-10 shrink-0 items-center">
-          <button 
+          <button
             onClick={() => setShowLibrary(true)}
             className="p-2 hover:bg-paper-accent/10 rounded-full transition-colors relative"
           >
@@ -198,7 +272,7 @@ const App: React.FC = () => {
         </div>
         <h2 className="text-paper-ink text-sm font-sans font-bold uppercase tracking-[0.2em] flex-1 text-center">Memorize</h2>
         <div className="flex w-10 items-center justify-end">
-          <button 
+          <button
             onClick={() => setShowSettings(true)}
             className="p-2 hover:bg-paper-accent/10 rounded-full transition-colors"
           >
@@ -217,8 +291,8 @@ const App: React.FC = () => {
             </span>
           </div>
           <div className="h-[1px] w-full bg-paper-line relative">
-            <div 
-              className="absolute top-0 left-0 h-[2px] bg-paper-ink transition-all duration-700 ease-out" 
+            <div
+              className="absolute top-0 left-0 h-[2px] bg-paper-ink transition-all duration-700 ease-out"
               style={{ width: `${progressPercent}%` }}
             ></div>
           </div>
@@ -227,18 +301,18 @@ const App: React.FC = () => {
         <main className="flex-1 flex flex-col items-center justify-center space-y-8 py-4">
           <div className="text-center fade-in relative group shrink-0">
             <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
-               <button 
+              <button
                 onClick={handleToggleFavorite}
                 className={`p-2 rounded-full transition-colors ${isCurrentFavorite ? 'text-amber-500' : 'text-paper-accent/30 hover:text-amber-500'}`}
-               >
+              >
                 <span className={`material-symbols-outlined text-2xl ${isCurrentFavorite ? 'fill-current' : ''}`}>
                   {isCurrentFavorite ? 'star' : 'star_outline'}
                 </span>
-               </button>
+              </button>
             </div>
             <p className="font-serif italic text-paper-accent text-lg flex items-center justify-center gap-2">
               {verse?.reference}
-              <button 
+              <button
                 onClick={handleToggleFavorite}
                 className={`transition-colors lg:hidden ${isCurrentFavorite ? 'text-amber-500' : 'text-paper-accent/30'}`}
               >
@@ -255,7 +329,7 @@ const App: React.FC = () => {
               {verse?.words.map((word, idx) => {
                 const isWordHidden = word.isHidden && !word.isRevealed;
                 const isNextToType = inputMode === InputMode.TYPE && idx === nextHiddenIdx;
-                
+
                 return (
                   <React.Fragment key={idx}>
                     {isWordHidden ? (
@@ -279,10 +353,10 @@ const App: React.FC = () => {
 
           <div className="pt-4 shrink-0">
             <p className="font-sans text-[10px] uppercase tracking-widest text-paper-accent/50 text-center italic font-medium">
-              {isMastered 
-                ? "Excellent progress!" 
-                : inputMode === InputMode.TYPE 
-                  ? "Type the first letter of the underlined word" 
+              {isMastered
+                ? "Excellent progress!"
+                : inputMode === InputMode.TYPE
+                  ? "Type the first letter of the underlined word"
                   : "Say the verse aloud as you go"
               }
             </p>
@@ -294,7 +368,7 @@ const App: React.FC = () => {
       <div className="fixed bottom-0 left-0 right-0 px-6 pb-10 pt-6 bg-gradient-to-t from-paper-bg via-paper-bg to-transparent z-10">
         <div className="max-w-md mx-auto">
           <div className="flex gap-4">
-            <button 
+            <button
               onClick={handleHint}
               disabled={isMastered}
               className="flex-1 flex flex-col items-center justify-center rounded-2xl h-20 bg-paper-line/40 border border-paper-accent/10 text-paper-accent hover:bg-paper-line transition-all active:scale-95 disabled:opacity-30"
@@ -302,9 +376,9 @@ const App: React.FC = () => {
               <span className="material-symbols-outlined mb-1">lightbulb</span>
               <span className="font-sans text-[10px] font-bold uppercase tracking-widest">Hint</span>
             </button>
-            
+
             {inputMode === InputMode.REVEAL ? (
-              <button 
+              <button
                 onClick={handleRevealNext}
                 className="flex-[2.5] flex flex-col items-center justify-center rounded-2xl h-20 bg-paper-ink text-paper-bg shadow-xl shadow-paper-ink/10 hover:opacity-90 active:scale-[0.98] transition-all"
               >
@@ -329,7 +403,7 @@ const App: React.FC = () => {
             )}
           </div>
           <div className="mt-6 flex justify-center">
-            <button 
+            <button
               onClick={handleMastered}
               disabled={isMastered}
               className="font-sans text-[11px] font-bold text-paper-accent uppercase tracking-[0.2em] hover:text-paper-ink transition-colors px-6 py-2 border border-transparent hover:border-paper-line rounded-full disabled:opacity-20"
@@ -340,7 +414,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      <Library 
+      <Library
         isOpen={showLibrary}
         onClose={() => setShowLibrary(false)}
         favorites={favorites}
@@ -348,9 +422,9 @@ const App: React.FC = () => {
         onRemoveFavorite={handleRemoveFavorite}
       />
 
-      <Settings 
-        isOpen={showSettings} 
-        onClose={() => setShowSettings(false)} 
+      <Settings
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
         onUpdateVerse={(ref, text) => initializeVerse(ref, text, difficulty)}
         currentDifficulty={difficulty}
         onUpdateDifficulty={(diff) => setDifficulty(diff)}

@@ -37,7 +37,7 @@ export const fetchVerseFromApi = async (version: string, reference: string) => {
 
   const data = await response.json();
   return {
-    reference: `${data.book} ${data.chapter}:${data.verse}`,
+    reference: `${match[1]} ${chapter}:${verse}`,
     text: data.text.trim()
   };
 };
