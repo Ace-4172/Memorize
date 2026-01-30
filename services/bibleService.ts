@@ -16,19 +16,23 @@ export const fetchVerseFromApi = async (version: string, reference: string) => {
     return fetchEsvVerse(reference);
   }
 
-  // Simple regex to parse "Book Chapter:Verse" or "Number Book Chapter:Verse"
-  const regex = /^(\d?\s?[a-zA-Z\s]+)\s(\d+):(\d+)$/;
+  // Simple regex to parse "Book Chapter:Verse" or "Number Book Chapter:Verse" or range
+  // Supports hyphen, en-dash, and em-dash
+  const regex = /^(.*?)\s*(\d+):(\d+)(?:[\-\u2013\u2014](\d+))?$/;
   const match = reference.trim().match(regex);
 
   if (!match) {
-    throw new Error("Invalid format. Please use 'Book Chapter:Verse' (e.g. John 3:16)");
+    throw new Error("Invalid format. Please use 'Book Chapter:Verse' (e.g. John 3:16) or 'Book Chapter:V1-V2'");
   }
 
-  let book = match[1].trim().toLowerCase().replace(/\s+/g, '-');
+  const bookName = match[1].trim();
+  const book = bookName.toLowerCase().replace(/\s+/g, '-');
   const chapter = match[2];
-  const verse = match[3];
+  const verseStart = parseInt(match[3]);
+  const verseEnd = match[4] ? parseInt(match[4]) : verseStart;
 
-  const url = `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/${version}/books/${book}/chapters/${chapter}/verses/${verse}.json`;
+  // Fetch the whole chapter to extract a range of verses
+  const url = `https://cdn.jsdelivr.net/gh/wldeh/bible-api/bibles/${version}/books/${book}/chapters/${chapter}.json`;
 
   const response = await fetch(url);
   if (!response.ok) {
@@ -36,9 +40,37 @@ export const fetchVerseFromApi = async (version: string, reference: string) => {
   }
 
   const data = await response.json();
+  const verses = data.data;
+
+  if (!verses || !Array.isArray(verses)) {
+    throw new Error("Failed to parse verses from API.");
+  }
+
+  // Filter verses in range and deduplicate
+  const seenVerses = new Set<string>();
+  const rangeVerses = verses.reduce((acc: any[], v: any) => {
+    const vNum = parseInt(v.verse);
+    if (vNum >= verseStart && vNum <= verseEnd && !seenVerses.has(v.verse)) {
+      seenVerses.add(v.verse);
+      acc.push(v);
+    }
+    return acc;
+  }, []);
+
+  if (rangeVerses.length === 0) {
+    throw new Error("Specified verse range not found in this chapter.");
+  }
+
+  const combinedText = rangeVerses
+    .map((v: any) => v.text.trim())
+    .join(' ')
+    .replace(/[¶§]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   return {
-    reference: `${match[1]} ${chapter}:${verse}`,
-    text: data.text.trim()
+    reference: match[4] ? `${bookName} ${chapter}:${verseStart}-${verseEnd}` : `${bookName} ${chapter}:${verseStart}`,
+    text: combinedText
   };
 };
 
@@ -68,7 +100,7 @@ async function fetchEsvVerse(passage: string) {
   if (passages && passages.length > 0) {
     return {
       reference: data.query, // ESV API returns the formatted query back
-      text: passages[0].trim()
+      text: passages[0].replace(/[¶§]/g, '').replace(/\s+/g, ' ').trim()
     };
   } else {
     throw new Error('Passage not found');

@@ -5,6 +5,8 @@ export interface VerseWord {
   isHidden: boolean;
   isRevealed: boolean;
   showHint: boolean;
+  isReference?: boolean;
+  isSymbol?: boolean;
 }
 
 export interface Verse {
@@ -14,6 +16,7 @@ export interface Verse {
 }
 
 export interface FavoriteVerse {
+  id: string;
   reference: string;
   text: string;
   version: string;

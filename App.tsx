@@ -29,7 +29,18 @@ const App: React.FC = () => {
   const loadSavedFavorites = (): FavoriteVerse[] => {
     const saved = localStorage.getItem(PERSISTENCE_KEYS.FAVORITES);
     if (saved) {
-      try { return JSON.parse(saved); } catch (e) { console.error("Failed to parse favorites", e); }
+      try {
+        const parsed: any[] = JSON.parse(saved);
+        // Migrate old favorites that don't have IDs
+        return parsed.map(f => ({
+          ...f,
+          id: f.id || ((typeof crypto !== 'undefined' && crypto.randomUUID)
+            ? crypto.randomUUID()
+            : Date.now().toString(36) + Math.random().toString(36).substring(2))
+        }));
+      } catch (e) {
+        console.error("Failed to parse favorites", e);
+      }
     }
     return [];
   };
@@ -95,7 +106,7 @@ const App: React.FC = () => {
 
   const initializeVerse = useCallback((ref: string, text: string, diff: Difficulty, preserveMastery = false) => {
     const rawWords = text.trim().split(/\s+/);
-    const words: VerseWord[] = rawWords.map((word, index) => {
+    const textWords: VerseWord[] = rawWords.map((word, index) => {
       const isVisibleByDefault = diff === Difficulty.EXTREME
         ? false
         : (index === 0 || (index === rawWords.length - 1 && rawWords.length > 3));
@@ -113,10 +124,82 @@ const App: React.FC = () => {
       };
     });
 
-    setVerse({ reference: ref, text, words });
+    // Handle Reference Parts
+    const refWords: VerseWord[] = [];
+    if (diff !== Difficulty.NONE) {
+      // Robust regex to handle Book Name Chapter:Verse-End (e.g. "1 John 1:1-3")
+      // Supports both hyphens (-) and en-dashes (–) common in Bible APIs
+      const refRegex = /^(.*?)\s*(\d+):(\d+)(?:[\-\u2013\u2014](\d+))?/;
+      const match = ref.trim().match(refRegex);
+
+      if (match) {
+        const [_, book, chapter, verseStart, verseEnd] = match;
+
+        // Book words
+        const toTitleCase = (str: string) => {
+          return str.split(/\s+/).map(word => {
+            if (/^\d+$/.test(word)) return word; // Keep numbers as is
+            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+          }).join(' ');
+        };
+
+        const formattedBook = toTitleCase(book);
+        const bookParts = formattedBook.split(/\s+/);
+
+        bookParts.forEach((part, i) => {
+          const isHard = diff === Difficulty.HARD || diff === Difficulty.EXTREME;
+          refWords.push({
+            text: part.toLowerCase(),
+            displayText: part,
+            isHidden: isHard,
+            isRevealed: false,
+            showHint: false,
+            isReference: true
+          });
+          if (i < bookParts.length - 1) {
+            refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+          }
+        });
+
+        // Space between book and chapter
+        refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+
+        // Helper to add numbers digit by digit
+        const addNumber = (num: string, isHidden: boolean) => {
+          num.split('').forEach(digit => {
+            refWords.push({
+              text: digit,
+              displayText: digit,
+              isHidden: isHidden,
+              isRevealed: false,
+              showHint: false,
+              isReference: true
+            });
+          });
+        };
+
+        // Chapter
+        const hideChapter = diff === Difficulty.MEDIUM || diff === Difficulty.HARD || diff === Difficulty.EXTREME;
+        addNumber(chapter, hideChapter);
+
+        // Colon
+        refWords.push({ text: ':', displayText: ':', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+
+        // Verse Start
+        addNumber(verseStart, true); // Always hidden for EASY and above
+
+        if (verseEnd) {
+          refWords.push({ text: '-', displayText: '-', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+          addNumber(verseEnd, true);
+        }
+      }
+    }
+
+    const combinedWords = [...textWords, ...refWords];
+    setVerse({ reference: ref, text, words: combinedWords });
 
     if (!preserveMastery) {
-      const hasHiddenWords = words.some(w => w.isHidden);
+      const hasHiddenWords = combinedWords.some(w => w.isHidden);
       setIsMastered(!hasHiddenWords);
     }
   }, []);
@@ -161,7 +244,7 @@ const App: React.FC = () => {
       return;
     }
 
-    const firstHidden = verse.words.findIndex(w => w.isHidden && !w.isRevealed);
+    const firstHidden = verse.words.findIndex(w => w.isHidden && !w.isRevealed && !w.isSymbol);
     if (firstHidden === -1) {
       setIsMastered(true);
       return;
@@ -171,7 +254,7 @@ const App: React.FC = () => {
     newWords[firstHidden] = { ...newWords[firstHidden], isRevealed: true };
     setVerse({ ...verse, words: newWords });
 
-    const remainingHidden = newWords.findIndex(w => w.isHidden && !w.isRevealed);
+    const remainingHidden = newWords.findIndex(w => w.isHidden && !w.isRevealed && !w.isSymbol);
     if (remainingHidden === -1) {
       setIsMastered(true);
     }
@@ -192,7 +275,7 @@ const App: React.FC = () => {
     // Clear input to allow next character
     e.target.value = '';
 
-    const firstHiddenIdx = verse.words.findIndex(w => w.isHidden && !w.isRevealed);
+    const firstHiddenIdx = verse.words.findIndex(w => w.isHidden && !w.isRevealed && !w.isSymbol);
     if (firstHiddenIdx === -1) return;
 
     const targetWord = verse.words[firstHiddenIdx];
@@ -220,7 +303,7 @@ const App: React.FC = () => {
       // Ignore functional keys
       if (e.key.length !== 1) return;
 
-      const firstHiddenIdx = verse.words.findIndex(w => w.isHidden && !w.isRevealed);
+      const firstHiddenIdx = verse.words.findIndex(w => w.isHidden && !w.isRevealed && !w.isSymbol);
       if (firstHiddenIdx === -1) return;
 
       const targetWord = verse.words[firstHiddenIdx];
@@ -241,7 +324,7 @@ const App: React.FC = () => {
 
   const handleHint = () => {
     if (!verse) return;
-    const firstHidden = verse.words.findIndex(w => w.isHidden && !w.isRevealed);
+    const firstHidden = verse.words.findIndex(w => w.isHidden && !w.isRevealed && !w.isSymbol);
     if (firstHidden === -1) return;
 
     const newWords = [...verse.words];
@@ -274,6 +357,9 @@ const App: React.FC = () => {
       setFavorites(favorites.filter(f => f.reference !== verse.reference));
     } else {
       const newFav: FavoriteVerse = {
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : Date.now().toString(36) + Math.random().toString(36).substring(2),
         reference: verse.reference,
         text: verse.text,
         version: version,
@@ -283,16 +369,24 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRemoveFavorite = (ref: string) => {
-    setFavorites(favorites.filter(f => f.reference !== ref));
+  const handleReorderFavorites = (newFavorites: FavoriteVerse[]) => {
+    setFavorites(newFavorites);
   };
 
-  const totalWords = verse?.words.length || 0;
-  const revealedCount = verse?.words.filter(w => !w.isHidden || w.isRevealed).length || 0;
+  const handleRenameFavorite = (id: string, newReference: string) => {
+    setFavorites(favorites.map(f => f.id === id ? { ...f, reference: newReference } : f));
+  };
+
+  const handleRemoveFavorite = (id: string) => {
+    setFavorites(favorites.filter(f => f.id !== id));
+  };
+
+  const totalWords = verse?.words.filter(w => !w.isSymbol).length || 0;
+  const revealedCount = verse?.words.filter(w => (!w.isHidden || w.isRevealed) && !w.isSymbol).length || 0;
   const progressPercent = totalWords > 0 ? (revealedCount / totalWords) * 100 : 0;
   const isCurrentFavorite = verse ? favorites.some(f => f.reference === verse.reference) : false;
 
-  const nextHiddenIdx = verse?.words.findIndex(w => w.isHidden && !w.isRevealed);
+  const nextHiddenIdx = verse?.words.findIndex(w => w.isHidden && !w.isRevealed && !w.isSymbol);
 
   useEffect(() => {
     if (activeWordRef.current && scrollContainerRef.current) {
@@ -357,9 +451,9 @@ const App: React.FC = () => {
 
         <main className="flex-1 flex flex-col items-center justify-center space-y-8 py-4">
           <div className="text-center fade-in relative group shrink-0">
-            <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute -top-10 left-1/2 -translate-x-1/2 opacity-0 md:group-hover:opacity-100 transition-opacity hidden md:block">
               <button
-                onClick={handleToggleFavorite}
+                onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
                 className={`p-2 rounded-full transition-colors ${isCurrentFavorite ? 'text-amber-500' : 'text-paper-accent/30 hover:text-amber-500'}`}
               >
                 <span className={`material-symbols-outlined text-2xl ${isCurrentFavorite ? 'fill-current' : ''}`}>
@@ -367,11 +461,11 @@ const App: React.FC = () => {
                 </span>
               </button>
             </div>
-            <p className="font-serif italic text-paper-accent text-lg flex items-center justify-center gap-2">
+            <p className="font-serif italic text-paper-accent text-lg flex items-center justify-center relative">
               {verse?.reference}
               <button
-                onClick={handleToggleFavorite}
-                className={`transition-colors lg:hidden ${isCurrentFavorite ? 'text-amber-500' : 'text-paper-accent/30'}`}
+                onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
+                className={`transition-colors md:hidden absolute -right-10 p-2 ${isCurrentFavorite ? 'text-amber-500' : 'text-paper-accent/30'}`}
               >
                 <span className={`material-symbols-outlined text-xl align-middle ${isCurrentFavorite ? 'fill-current' : ''}`}>
                   {isCurrentFavorite ? 'star' : 'star_outline'}
@@ -405,34 +499,51 @@ const App: React.FC = () => {
             )}
             <div className="py-20">
               <h1 className="text-paper-ink text-[28px] md:text-[32px] leading-[1.6] font-serif transition-all px-2">
-                {verse?.words.map((word, idx) => {
-                  const isWordHidden = word.isHidden && !word.isRevealed;
-                  const isActive = idx === nextHiddenIdx;
-                  const isPast = nextHiddenIdx !== undefined && nextHiddenIdx !== -1 && idx < nextHiddenIdx;
+                {(() => {
+                  let hasStartedRef = false;
+                  return verse?.words.map((word, idx) => {
+                    const isWordHidden = word.isHidden && !word.isRevealed;
+                    const isActive = idx === nextHiddenIdx;
+                    const isPast = nextHiddenIdx !== undefined && nextHiddenIdx !== -1 && idx < nextHiddenIdx;
 
-                  return (
-                    <React.Fragment key={idx}>
-                      <span
-                        ref={isActive ? activeWordRef : null}
-                        className={`inline-block transition-all duration-500 ${isPast ? 'opacity-20 translate-y-[-4px] scale-[0.98]' : 'opacity-100'}`}
-                      >
-                        {isWordHidden ? (
-                          <span className={`pencil-underline relative group cursor-default select-none ${isActive && inputMode === InputMode.TYPE ? 'after:!bg-paper-ink/40 after:!h-[4px]' : ''}`}>
-                            {word.showHint ? (
-                              <span className="absolute inset-0 flex items-center justify-center text-paper-accent/50 italic text-xl fade-in font-handwriting">
-                                {word.text.charAt(0)}
-                              </span>
-                            ) : null}
-                            {word.displayText}
-                          </span>
-                        ) : (
-                          <span className="fade-in inline-block font-medium">{word.displayText}</span>
+                    const showDivider = word.isReference && !hasStartedRef;
+                    if (showDivider) hasStartedRef = true;
+
+                    if (word.isSymbol) {
+                      return (
+                        <span key={idx} className="opacity-40 text-[0.8em] align-middle font-sans px-[1px]">
+                          {word.displayText}
+                        </span>
+                      );
+                    }
+
+                    return (
+                      <React.Fragment key={idx}>
+                        {showDivider && (
+                          <span className="block h-[1px] w-12 bg-paper-accent/20 mx-auto my-6" />
                         )}
-                      </span>
-                      {' '}
-                    </React.Fragment>
-                  );
-                })}
+                        <span
+                          ref={isActive ? activeWordRef : null}
+                          className={`inline-block transition-all duration-500 ${isPast && inputMode === InputMode.TYPE ? 'opacity-20 translate-y-[-4px] scale-[0.98]' : 'opacity-100'} ${word.isReference ? 'font-serif italic text-[0.7em] opacity-80' : ''}`}
+                        >
+                          {isWordHidden ? (
+                            <span className={`pencil-underline relative group cursor-default select-none ${isActive && inputMode === InputMode.TYPE ? 'after:!bg-paper-ink/40 after:!h-[4px]' : ''}`}>
+                              {word.showHint ? (
+                                <span className={`absolute inset-0 flex items-center justify-center text-paper-accent/50 italic fade-in font-handwriting ${word.isReference ? 'text-lg' : 'text-xl'}`}>
+                                  {word.text.charAt(0)}
+                                </span>
+                              ) : null}
+                              {word.displayText}
+                            </span>
+                          ) : (
+                            <span className="fade-in inline-block font-medium">{word.displayText}</span>
+                          )}
+                        </span>
+                        {!word.isReference && ' '}
+                      </React.Fragment>
+                    );
+                  });
+                })()}
               </h1>
             </div>
           </div>
@@ -506,6 +617,8 @@ const App: React.FC = () => {
         favorites={favorites}
         onSelectVerse={handleSelectFromLibrary}
         onRemoveFavorite={handleRemoveFavorite}
+        onReorderFavorites={handleReorderFavorites}
+        onRenameFavorite={handleRenameFavorite}
       />
 
       <Settings
