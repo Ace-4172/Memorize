@@ -70,6 +70,9 @@ const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
   const [isShaking, setIsShaking] = useState(false);
+  const activeWordRef = useRef<HTMLSpanElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Save changes to localStorage
   useEffect(() => {
@@ -174,7 +177,42 @@ const App: React.FC = () => {
     }
   }, [verse, isMastered, difficulty, initializeVerse]);
 
-  // Handle keyboard input for Typing Mode
+  // Handle input for Typing Mode
+  useEffect(() => {
+    if (inputMode === InputMode.TYPE && !showSettings && !showLibrary && !isMastered) {
+      inputRef.current?.focus({ preventScroll: true });
+    }
+  }, [inputMode, showSettings, showLibrary, isMastered]);
+
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    if (!val || !verse || isMastered) return;
+
+    const char = val.charAt(val.length - 1).toLowerCase();
+    // Clear input to allow next character
+    e.target.value = '';
+
+    const firstHiddenIdx = verse.words.findIndex(w => w.isHidden && !w.isRevealed);
+    if (firstHiddenIdx === -1) return;
+
+    const targetWord = verse.words[firstHiddenIdx];
+    const firstChar = targetWord.text.charAt(0);
+
+    if (char === firstChar) {
+      handleRevealNext();
+    } else {
+      setIsShaking(true);
+      setTimeout(() => setIsShaking(false), 300);
+    }
+  };
+
+  const ensureFocus = () => {
+    if (inputMode === InputMode.TYPE) {
+      inputRef.current?.focus({ preventScroll: true });
+    }
+  };
+
+  // Keep keyboard input for Desktop Typing Mode (supplemental)
   useEffect(() => {
     if (inputMode !== InputMode.TYPE || !verse || isMastered || showSettings || showLibrary) return;
 
@@ -256,6 +294,25 @@ const App: React.FC = () => {
 
   const nextHiddenIdx = verse?.words.findIndex(w => w.isHidden && !w.isRevealed);
 
+  useEffect(() => {
+    if (activeWordRef.current && scrollContainerRef.current) {
+      const container = scrollContainerRef.current;
+      const activeWord = activeWordRef.current;
+
+      const containerHeight = container.clientHeight;
+      const wordTop = activeWord.offsetTop;
+      const wordHeight = activeWord.offsetHeight;
+
+      const targetOffset = containerHeight / 3.5; // Positions active word in upper-middle
+      const targetScroll = wordTop - targetOffset;
+
+      container.scrollTo({
+        top: Math.max(0, targetScroll),
+        behavior: 'smooth'
+      });
+    }
+  }, [nextHiddenIdx, verse]);
+
   return (
     <div className="flex flex-col h-screen h-[100dvh] overflow-hidden">
       <header className="flex items-center p-4 pb-2 justify-between shrink-0 bg-paper-bg/80 backdrop-blur-sm z-20">
@@ -324,31 +381,60 @@ const App: React.FC = () => {
             <div className="h-px w-8 bg-paper-accent/30 mx-auto mt-1"></div>
           </div>
 
-          <div className="relative w-full text-center">
-            <h1 className="text-paper-ink text-[28px] md:text-[32px] leading-[1.6] font-serif transition-all px-2">
-              {verse?.words.map((word, idx) => {
-                const isWordHidden = word.isHidden && !word.isRevealed;
-                const isNextToType = inputMode === InputMode.TYPE && idx === nextHiddenIdx;
+          <div
+            ref={scrollContainerRef}
+            className="relative w-full text-center cursor-text overflow-y-auto h-[240px] md:h-[280px] no-scrollbar scroll-smooth [overflow-anchor:none]"
+            onClick={ensureFocus}
+            style={{
+              maskImage: 'linear-gradient(to bottom, transparent, black 20%, black 80%, transparent)',
+              WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 20%, black 80%, transparent)'
+            }}
+          >
+            {inputMode === InputMode.TYPE && (
+              <input
+                ref={inputRef}
+                type="text"
+                className="fixed opacity-0 p-0 m-0 border-none w-0 h-0 pointer-events-none focus:outline-none caret-transparent text-transparent bg-transparent"
+                onChange={handleInput}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+                aria-hidden="true"
+              />
+            )}
+            <div className="py-20">
+              <h1 className="text-paper-ink text-[28px] md:text-[32px] leading-[1.6] font-serif transition-all px-2">
+                {verse?.words.map((word, idx) => {
+                  const isWordHidden = word.isHidden && !word.isRevealed;
+                  const isActive = idx === nextHiddenIdx;
+                  const isPast = nextHiddenIdx !== undefined && nextHiddenIdx !== -1 && idx < nextHiddenIdx;
 
-                return (
-                  <React.Fragment key={idx}>
-                    {isWordHidden ? (
-                      <span className={`pencil-underline relative group cursor-default select-none ${isNextToType ? 'after:!bg-paper-ink/40 after:!h-[4px]' : ''}`}>
-                        {word.showHint ? (
-                          <span className="absolute inset-0 flex items-center justify-center text-paper-accent/50 italic text-xl fade-in font-handwriting">
-                            {word.text.charAt(0)}
+                  return (
+                    <React.Fragment key={idx}>
+                      <span
+                        ref={isActive ? activeWordRef : null}
+                        className={`inline-block transition-all duration-500 ${isPast ? 'opacity-20 translate-y-[-4px] scale-[0.98]' : 'opacity-100'}`}
+                      >
+                        {isWordHidden ? (
+                          <span className={`pencil-underline relative group cursor-default select-none ${isActive && inputMode === InputMode.TYPE ? 'after:!bg-paper-ink/40 after:!h-[4px]' : ''}`}>
+                            {word.showHint ? (
+                              <span className="absolute inset-0 flex items-center justify-center text-paper-accent/50 italic text-xl fade-in font-handwriting">
+                                {word.text.charAt(0)}
+                              </span>
+                            ) : null}
+                            {word.displayText}
                           </span>
-                        ) : null}
-                        {word.displayText}
+                        ) : (
+                          <span className="fade-in inline-block font-medium">{word.displayText}</span>
+                        )}
                       </span>
-                    ) : (
-                      <span className="fade-in inline-block font-medium">{word.displayText}</span>
-                    )}
-                    {' '}
-                  </React.Fragment>
-                );
-              })}
-            </h1>
+                      {' '}
+                    </React.Fragment>
+                  );
+                })}
+              </h1>
+            </div>
           </div>
 
           <div className="pt-4 shrink-0">
