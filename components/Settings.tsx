@@ -14,6 +14,8 @@ interface SettingsProps {
   onUpdateVersion: (version: string) => void;
   inputMode: InputMode;
   onUpdateInputMode: (mode: InputMode) => void;
+  isDarkMode: boolean;
+  onToggleDarkMode: () => void;
 }
 
 const Settings: React.FC<SettingsProps> = ({
@@ -25,7 +27,9 @@ const Settings: React.FC<SettingsProps> = ({
   currentVersion,
   onUpdateVersion,
   inputMode,
-  onUpdateInputMode
+  onUpdateInputMode,
+  isDarkMode,
+  onToggleDarkMode
 }) => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -82,7 +86,7 @@ const Settings: React.FC<SettingsProps> = ({
       onClick={() => onUpdateDifficulty(opt.value)}
       className={`flex-1 flex flex-col items-center py-2 px-1 rounded-xl transition-all duration-300 ${currentDifficulty === opt.value
         ? 'bg-paper-ink text-paper-bg shadow-md scale-[1.02]'
-        : 'text-paper-accent hover:bg-paper-accent/5'
+        : 'text-paper-accent hover:bg-paper-accent/10 bg-paper-bg/20'
         }`}
     >
       <span className="font-sans text-[10px] font-bold uppercase tracking-tight">{opt.label}</span>
@@ -92,8 +96,11 @@ const Settings: React.FC<SettingsProps> = ({
     </button>
   );
 
+  const accentColor = isDarkMode ? '#b8a68a' : '#8b7e6a';
+  const selectChevron = `url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22${encodeURIComponent(accentColor)}%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22/%3E%3C/svg%3E")`;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-paper-ink/20 backdrop-blur-sm transition-opacity">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm transition-opacity">
       <div className="bg-paper-bg paper-texture w-full max-w-md rounded-3xl shadow-2xl p-6 border border-paper-accent/20 flex flex-col gap-6 max-h-[85vh] overflow-y-auto no-scrollbar">
         <div className="flex justify-between items-center border-b border-paper-line pb-4">
           <h3 className="font-sans font-bold uppercase tracking-widest text-sm text-paper-accent">Configuration</h3>
@@ -105,10 +112,10 @@ const Settings: React.FC<SettingsProps> = ({
         <div className="flex flex-col gap-3">
           <label className="font-sans text-[10px] font-bold uppercase tracking-widest text-paper-accent">Memorization Level</label>
           <div className="flex flex-col gap-2">
-            <div className="flex p-1 bg-paper-line/30 rounded-2xl gap-1">
+            <div className="flex p-1 bg-paper-well rounded-2xl gap-1">
               {mainOptions.map(renderOption)}
             </div>
-            <div className="flex p-1 bg-paper-line/30 rounded-2xl gap-1 w-2/3 mx-auto">
+            <div className="flex p-1 bg-paper-well rounded-2xl gap-1 w-2/3 mx-auto">
               {advancedOptions.map(renderOption)}
             </div>
           </div>
@@ -116,16 +123,16 @@ const Settings: React.FC<SettingsProps> = ({
 
         <div className="flex flex-col gap-3">
           <label className="font-sans text-[10px] font-bold uppercase tracking-widest text-paper-accent">Interaction Mode</label>
-          <div className="flex p-1 bg-paper-line/30 rounded-2xl gap-1">
+          <div className="flex p-1 bg-paper-well rounded-2xl gap-1">
             <button
               onClick={() => onUpdateInputMode(InputMode.REVEAL)}
-              className={`flex-1 py-2 rounded-xl transition-all ${inputMode === InputMode.REVEAL ? 'bg-paper-ink text-paper-bg shadow-sm' : 'text-paper-accent hover:bg-paper-accent/5'}`}
+              className={`flex-1 py-2 rounded-xl transition-all ${inputMode === InputMode.REVEAL ? 'bg-paper-ink text-paper-bg shadow-sm' : 'text-paper-accent hover:bg-paper-accent/10 bg-paper-bg/20 dark:bg-black/20'}`}
             >
               <span className="font-sans text-[10px] font-bold uppercase tracking-widest">Reveal Tap</span>
             </button>
             <button
               onClick={() => onUpdateInputMode(InputMode.TYPE)}
-              className={`flex-1 py-2 rounded-xl transition-all ${inputMode === InputMode.TYPE ? 'bg-paper-ink text-paper-bg shadow-sm' : 'text-paper-accent hover:bg-paper-accent/5'}`}
+              className={`flex-1 py-2 rounded-xl transition-all ${inputMode === InputMode.TYPE ? 'bg-paper-ink text-paper-bg shadow-sm' : 'text-paper-accent hover:bg-paper-accent/10 bg-paper-bg/20 dark:bg-black/20'}`}
             >
               <span className="font-sans text-[10px] font-bold uppercase tracking-widest">Type First Letter</span>
             </button>
@@ -137,12 +144,28 @@ const Settings: React.FC<SettingsProps> = ({
           <select
             value={currentVersion}
             onChange={(e) => onUpdateVersion(e.target.value)}
-            className="w-full bg-paper-line/30 border-paper-accent/20 rounded-xl px-4 py-3 font-serif italic text-paper-ink focus:ring-paper-accent/30 focus:border-paper-accent/30 appearance-none bg-[url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%238b7e6a%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.4-12.8z%22/%3E%3C/svg%3E')] bg-[length:12px] bg-[right_1rem_center] bg-no-repeat"
+            style={{ backgroundImage: selectChevron }}
+            className="w-full bg-paper-bg dark:bg-black/20 border border-paper-accent/20 rounded-xl px-4 py-3 font-serif italic text-paper-ink focus:ring-1 focus:ring-paper-accent/30 focus:border-paper-accent/30 appearance-none bg-[length:12px] bg-[right_1rem_center] bg-no-repeat transition-colors"
           >
             {BIBLE_VERSIONS.map(v => (
-              <option key={v.id} value={v.id}>{v.name}</option>
+              <option key={v.id} value={v.id} className="bg-paper-bg text-paper-ink">{v.name}</option>
             ))}
           </select>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <label className="font-sans text-[10px] font-bold uppercase tracking-widest text-paper-accent">Theme Appearance</label>
+          <button
+            onClick={onToggleDarkMode}
+            className="flex items-center justify-between w-full p-3 bg-paper-line/30 rounded-2xl text-paper-accent hover:bg-paper-accent/5 transition-all"
+          >
+            <span className="font-sans text-[10px] font-bold uppercase tracking-widest">
+              {isDarkMode ? 'Midnight Tome' : 'Classic Parchment'}
+            </span>
+            <span className="material-symbols-outlined text-xl">
+              {isDarkMode ? 'dark_mode' : 'light_mode'}
+            </span>
+          </button>
         </div>
 
         <form onSubmit={handleSearch} className="flex flex-col gap-3">
@@ -153,7 +176,7 @@ const Settings: React.FC<SettingsProps> = ({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="e.g. John 3:16"
-              className="w-full bg-paper-line/30 border-paper-accent/20 rounded-xl px-4 py-3 font-serif italic text-paper-ink placeholder:text-paper-accent/40 focus:ring-paper-accent/30 focus:border-paper-accent/30"
+              className="w-full bg-paper-bg dark:bg-black/20 border border-paper-accent/20 rounded-xl px-4 py-3 font-serif italic text-paper-ink placeholder:text-paper-accent/40 focus:ring-1 focus:ring-paper-accent/30 focus:border-paper-accent/30 transition-colors"
             />
             <button
               type="submit"

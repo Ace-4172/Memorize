@@ -11,6 +11,7 @@ export interface VerseWord {
 
 export interface Verse {
   reference: string;
+  label?: string;
   text: string;
   words: VerseWord[];
 }
@@ -18,6 +19,7 @@ export interface Verse {
 export interface FavoriteVerse {
   id: string;
   reference: string;
+  label?: string; // Custom display name
   text: string;
   version: string;
   timestamp: number;

@@ -9,7 +9,9 @@ const DEFAULT_VERSE_REF = "Philippians 4:13";
 const PERSISTENCE_KEYS = {
   FAVORITES: 'memorize_favorites',
   SETTINGS: 'memorize_settings',
-  CURRENT_VERSE: 'memorize_current_verse'
+  CURRENT_VERSE: 'memorize_current_verse',
+  THEME: 'memorize_theme',
+  DARK_MODE: 'memorize_dark_mode'
 };
 
 interface SavedSettings {
@@ -36,7 +38,8 @@ const App: React.FC = () => {
           ...f,
           id: f.id || ((typeof crypto !== 'undefined' && crypto.randomUUID)
             ? crypto.randomUUID()
-            : Date.now().toString(36) + Math.random().toString(36).substring(2))
+            : Date.now().toString(36) + Math.random().toString(36).substring(2)),
+          label: f.label || f.reference // Migrate old favorites
         }));
       } catch (e) {
         console.error("Failed to parse favorites", e);
@@ -80,6 +83,10 @@ const App: React.FC = () => {
 
   const [showSettings, setShowSettings] = useState(false);
   const [showLibrary, setShowLibrary] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem(PERSISTENCE_KEYS.DARK_MODE);
+    return saved ? JSON.parse(saved) : false;
+  });
   const [isShaking, setIsShaking] = useState(false);
   const activeWordRef = useRef<HTMLSpanElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -95,6 +102,16 @@ const App: React.FC = () => {
   }, [difficulty, version, inputMode]);
 
   useEffect(() => {
+    localStorage.setItem(PERSISTENCE_KEYS.DARK_MODE, JSON.stringify(isDarkMode));
+    localStorage.setItem(PERSISTENCE_KEYS.THEME, isDarkMode ? 'dark' : 'light'); // Keep for backward compat
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
+
+  useEffect(() => {
     if (verse) {
       localStorage.setItem(PERSISTENCE_KEYS.CURRENT_VERSE, JSON.stringify({
         reference: verse.reference,
@@ -104,7 +121,7 @@ const App: React.FC = () => {
     }
   }, [verse, isMastered]);
 
-  const initializeVerse = useCallback((ref: string, text: string, diff: Difficulty, preserveMastery = false) => {
+  const initializeVerse = useCallback((ref: string, text: string, diff: Difficulty, preserveMastery = false, label?: string) => {
     const rawWords = text.trim().split(/\s+/);
     const textWords: VerseWord[] = rawWords.map((word, index) => {
       const isVisibleByDefault = diff === Difficulty.EXTREME
@@ -126,77 +143,95 @@ const App: React.FC = () => {
 
     // Handle Reference Parts
     const refWords: VerseWord[] = [];
-    if (diff !== Difficulty.NONE) {
-      // Robust regex to handle Book Name Chapter:Verse-End (e.g. "1 John 1:1-3")
-      // Supports both hyphens (-) and en-dashes (–) common in Bible APIs
-      const refRegex = /^(.*?)\s*(\d+):(\d+)(?:[\-\u2013\u2014](\d+))?/;
-      const match = ref.trim().match(refRegex);
+    // Robust regex to handle Book Name Chapter:Verse-End (e.g. "1 John 1:1-3")
+    // Supports both hyphens (-) and en-dashes (–) common in Bible APIs
+    const refRegex = /^(.*?)\s*(\d+):(\d+)(?:[\-\u2013\u2014](\d+))?/;
+    const match = ref.trim().match(refRegex);
 
-      if (match) {
-        const [_, book, chapter, verseStart, verseEnd] = match;
+    if (match) {
+      const [_, book, chapter, verseStart, verseEnd] = match;
 
-        // Book words
-        const toTitleCase = (str: string) => {
-          return str.split(/\s+/).map(word => {
-            if (/^\d+$/.test(word)) return word; // Keep numbers as is
-            return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-          }).join(' ');
-        };
+      // Book words
+      const toTitleCase = (str: string) => {
+        return str.split(/\s+/).map(word => {
+          if (/^\d+$/.test(word)) return word; // Keep numbers as is
+          return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+        }).join(' ');
+      };
 
-        const formattedBook = toTitleCase(book);
-        const bookParts = formattedBook.split(/\s+/);
+      const formattedBook = toTitleCase(book);
+      const bookParts = formattedBook.split(/\s+/);
 
-        bookParts.forEach((part, i) => {
-          const isHard = diff === Difficulty.HARD || diff === Difficulty.EXTREME;
+      bookParts.forEach((part, i) => {
+        const isHard = diff === Difficulty.HARD || diff === Difficulty.EXTREME;
+        const isHiddenRaw = diff === Difficulty.NONE ? false : isHard;
+        refWords.push({
+          text: part.toLowerCase(),
+          displayText: part,
+          isHidden: isHiddenRaw,
+          isRevealed: diff === Difficulty.NONE,
+          showHint: false,
+          isReference: true
+        });
+        if (i < bookParts.length - 1) {
+          refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+        }
+      });
+
+      // Space between book and chapter
+      refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+
+      // Helper to add numbers digit by digit
+      const addNumber = (num: string, isHidden: boolean) => {
+        num.split('').forEach(digit => {
           refWords.push({
-            text: part.toLowerCase(),
-            displayText: part,
-            isHidden: isHard,
-            isRevealed: false,
+            text: digit,
+            displayText: digit,
+            isHidden: isHidden,
+            isRevealed: diff === Difficulty.NONE || !isHidden,
             showHint: false,
             isReference: true
           });
-          if (i < bookParts.length - 1) {
-            refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
-          }
         });
+      };
 
-        // Space between book and chapter
-        refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+      // Chapter
+      const hideChapter = diff === Difficulty.MEDIUM || diff === Difficulty.HARD || diff === Difficulty.EXTREME;
+      addNumber(chapter, diff === Difficulty.NONE ? false : hideChapter);
 
-        // Helper to add numbers digit by digit
-        const addNumber = (num: string, isHidden: boolean) => {
-          num.split('').forEach(digit => {
-            refWords.push({
-              text: digit,
-              displayText: digit,
-              isHidden: isHidden,
-              isRevealed: false,
-              showHint: false,
-              isReference: true
-            });
-          });
-        };
+      // Colon
+      refWords.push({ text: ':', displayText: ':', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
 
-        // Chapter
-        const hideChapter = diff === Difficulty.MEDIUM || diff === Difficulty.HARD || diff === Difficulty.EXTREME;
-        addNumber(chapter, hideChapter);
+      // Verse Start
+      addNumber(verseStart, diff === Difficulty.NONE ? false : true); // Always hidden for EASY and above
 
-        // Colon
-        refWords.push({ text: ':', displayText: ':', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
-
-        // Verse Start
-        addNumber(verseStart, true); // Always hidden for EASY and above
-
-        if (verseEnd) {
-          refWords.push({ text: '-', displayText: '-', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
-          addNumber(verseEnd, true);
-        }
+      if (verseEnd) {
+        refWords.push({ text: '-', displayText: '-', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+        addNumber(verseEnd, diff === Difficulty.NONE ? false : true);
       }
+    } else {
+      // Fallback for custom reference names (e.g. if a verse was renamed in the library)
+      const parts = ref.trim().split(/\s+/);
+      parts.forEach((part, i) => {
+        // Hide custom references if difficulty is MEDIUM or higher
+        const isHidden = diff === Difficulty.MEDIUM || diff === Difficulty.HARD || diff === Difficulty.EXTREME;
+
+        refWords.push({
+          text: part.replace(/[.,!?;:"]/g, '').toLowerCase(),
+          displayText: part,
+          isHidden: diff === Difficulty.NONE ? false : isHidden,
+          isRevealed: diff === Difficulty.NONE,
+          showHint: false,
+          isReference: true
+        });
+        if (i < parts.length - 1) {
+          refWords.push({ text: ' ', displayText: ' ', isHidden: false, isRevealed: true, showHint: false, isReference: true, isSymbol: true });
+        }
+      });
     }
 
     const combinedWords = [...textWords, ...refWords];
-    setVerse({ reference: ref, text, words: combinedWords });
+    setVerse({ reference: ref, label, text, words: combinedWords });
 
     if (!preserveMastery) {
       const hasHiddenWords = combinedWords.some(w => w.isHidden);
@@ -212,7 +247,9 @@ const App: React.FC = () => {
 
     const saved = loadSavedVerse();
     if (saved) {
-      initializeVerse(saved.reference, saved.text, difficulty, true);
+      // Find matching favorite to get its label if it exists
+      const fav = loadSavedFavorites().find(f => f.reference === saved.reference && f.text === saved.text);
+      initializeVerse(saved.reference, saved.text, difficulty, true, fav?.label);
     } else {
       initializeVerse(DEFAULT_VERSE_REF, DEFAULT_VERSE_TEXT, difficulty);
     }
@@ -227,12 +264,13 @@ const App: React.FC = () => {
     }
     const currentRef = verse?.reference || DEFAULT_VERSE_REF;
     const currentText = verse?.text || DEFAULT_VERSE_TEXT;
-    initializeVerse(currentRef, currentText, difficulty);
+    const currentLabel = verse?.label;
+    initializeVerse(currentRef, currentText, difficulty, false, currentLabel);
   }, [difficulty]);
 
-  const handleSelectFromLibrary = (ref: string, text: string, ver: string) => {
+  const handleSelectFromLibrary = (ref: string, text: string, ver: string, label?: string) => {
     setVersion(ver);
-    initializeVerse(ref, text, difficulty);
+    initializeVerse(ref, text, difficulty, false, label);
     setShowLibrary(false);
   };
 
@@ -240,7 +278,7 @@ const App: React.FC = () => {
     if (!verse) return;
 
     if (isMastered) {
-      initializeVerse(verse.reference, verse.text, difficulty);
+      initializeVerse(verse.reference, verse.text, difficulty, false, verse.label);
       return;
     }
 
@@ -361,6 +399,7 @@ const App: React.FC = () => {
           ? crypto.randomUUID()
           : Date.now().toString(36) + Math.random().toString(36).substring(2),
         reference: verse.reference,
+        label: verse.reference, // Initial label matches reference
         text: verse.text,
         version: version,
         timestamp: Date.now()
@@ -373,8 +412,8 @@ const App: React.FC = () => {
     setFavorites(newFavorites);
   };
 
-  const handleRenameFavorite = (id: string, newReference: string) => {
-    setFavorites(favorites.map(f => f.id === id ? { ...f, reference: newReference } : f));
+  const handleRenameFavorite = (id: string, newLabel: string) => {
+    setFavorites(favorites.map(f => f.id === id ? { ...f, label: newLabel } : f));
   };
 
   const handleRemoveFavorite = (id: string) => {
@@ -462,7 +501,7 @@ const App: React.FC = () => {
               </button>
             </div>
             <p className="font-serif italic text-paper-accent text-lg flex items-center justify-center relative">
-              {verse?.reference}
+              {verse?.label || verse?.reference}
               <button
                 onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
                 className={`transition-colors md:hidden absolute -right-10 p-2 ${isCurrentFavorite ? 'text-amber-500' : 'text-paper-accent/30'}`}
@@ -589,7 +628,7 @@ const App: React.FC = () => {
             ) : (
               <div className="flex-[2.5] flex flex-col items-center justify-center rounded-2xl h-20 bg-paper-line/20 border border-paper-line text-paper-accent italic font-serif text-sm">
                 {isMastered ? (
-                  <button onClick={() => initializeVerse(verse!.reference, verse!.text, difficulty)} className="w-full h-full flex flex-col items-center justify-center uppercase font-sans font-bold text-[10px] tracking-widest text-paper-ink">
+                  <button onClick={() => initializeVerse(verse!.reference, verse!.text, difficulty, false, verse!.label)} className="w-full h-full flex flex-col items-center justify-center uppercase font-sans font-bold text-[10px] tracking-widest text-paper-ink">
                     <span className="material-symbols-outlined mb-1 text-2xl">auto_stories</span>
                     Read Again
                   </button>
@@ -631,6 +670,8 @@ const App: React.FC = () => {
         onUpdateVersion={(v) => setVersion(v)}
         inputMode={inputMode}
         onUpdateInputMode={setInputMode}
+        isDarkMode={isDarkMode}
+        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
       />
     </div>
   );

@@ -7,10 +7,30 @@
   --paper-ink: #2c2c2c;
   --paper-accent: #8b7e6a;
   --paper-line: #e2ded0;
+  --paper-well: #eae3d4;
+  --paper-svg-accent: 139, 126, 106;
+  --paper-bg-dark: #E8E0D0;
+  /* rgb equivalent of #8b7e6a */
+}
+
+.dark {
+  --paper-bg: #121212;
+  --paper-ink: #e5e1d8;
+  --paper-accent: #b8a68a;
+  --paper-line: #242424;
+  --paper-well: #1e1e1e;
+  --paper-svg-accent: 184, 166, 138;
+  /* rgb equivalent of #b8a68a */
 }
 
 body {
   background-color: var(--paper-bg);
   color: var(--paper-ink);
   font-family: 'Playfair Display', serif;
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* Ensure the paper texture is subtle in dark mode without making the whole element transparent */
+.dark .paper-texture {
+  background-blend-mode: soft-light;
 }

@@ -27,7 +27,7 @@ interface LibraryProps {
   isOpen: boolean;
   onClose: () => void;
   favorites: FavoriteVerse[];
-  onSelectVerse: (ref: string, text: string, version: string) => void;
+  onSelectVerse: (ref: string, text: string, version: string, label?: string) => void;
   onRemoveFavorite: (id: string) => void;
   onReorderFavorites: (newFavorites: FavoriteVerse[]) => void;
   onRenameFavorite: (id: string, newReference: string) => void;
@@ -45,7 +45,7 @@ const VerseItem: React.FC<SortableItemProps & { attributes?: any, listeners?: an
   fav, onSelect, onRemove, onRename, attributes, listeners, isDragging, isOverlay
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(fav.reference);
+  const [editValue, setEditValue] = useState(fav.label || fav.reference);
 
   const handleRenameSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +71,7 @@ const VerseItem: React.FC<SortableItemProps & { attributes?: any, listeners?: an
           <form onSubmit={handleRenameSubmit} className="w-full">
             <input
               autoFocus
-              className="w-full bg-white border border-paper-accent/30 rounded-xl p-4 shadow-inner font-sans font-bold text-[11px] uppercase tracking-wider text-paper-ink focus:outline-none focus:border-paper-accent"
+              className="w-full bg-paper-bg border border-paper-accent/30 rounded-xl p-4 shadow-inner font-sans font-bold text-[11px] uppercase tracking-wider text-paper-ink focus:outline-none focus:border-paper-accent"
               value={editValue}
               onChange={(e) => setEditValue(e.target.value)}
               onBlur={handleRenameSubmit}
@@ -80,11 +80,11 @@ const VerseItem: React.FC<SortableItemProps & { attributes?: any, listeners?: an
         ) : (
           <button
             onClick={onSelect}
-            className={`w-full text-left bg-white border border-paper-line rounded-xl p-4 shadow-sm hover:shadow-md hover:border-paper-accent/30 transition-all active:scale-[0.98] select-none ${isOverlay ? 'shadow-xl border-paper-accent/40' : ''}`}
+            className={`w-full text-left bg-paper-bg border border-paper-line rounded-xl p-4 shadow-sm hover:shadow-md hover:border-paper-accent/30 transition-all active:scale-[0.98] select-none ${isOverlay ? 'shadow-xl border-paper-accent/40' : ''}`}
           >
             <div className="flex justify-between items-start mb-2 pointer-events-none">
               <span className="font-sans font-bold text-[11px] uppercase tracking-wider text-paper-ink">
-                {fav.reference}
+                {fav.label || fav.reference}
               </span>
               <span className="font-sans text-[9px] uppercase font-medium text-paper-accent/60">
                 {fav.version.split(' ').map(w => w[0]).join('')}
@@ -100,7 +100,7 @@ const VerseItem: React.FC<SortableItemProps & { attributes?: any, listeners?: an
         {!isEditing && !isOverlay && (
           <button
             onClick={(e) => { e.stopPropagation(); setIsEditing(true); }}
-            className="absolute top-2 right-8 size-6 bg-white border border-paper-line rounded-full flex items-center justify-center text-paper-accent/40 hover:text-paper-ink shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute top-2 right-8 size-6 bg-paper-bg border border-paper-line rounded-full flex items-center justify-center text-paper-accent/40 hover:text-paper-ink shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <span className="material-symbols-outlined text-sm">edit</span>
           </button>
@@ -110,7 +110,7 @@ const VerseItem: React.FC<SortableItemProps & { attributes?: any, listeners?: an
         {!isOverlay && (
           <button
             onClick={(e) => { e.stopPropagation(); onRemove(); }}
-            className="absolute -top-2 -right-2 size-6 bg-white border border-paper-line rounded-full flex items-center justify-center text-paper-accent/40 hover:text-red-500 hover:border-red-200 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+            className="absolute -top-2 -right-2 size-6 bg-paper-bg border border-paper-line rounded-full flex items-center justify-center text-paper-accent/40 hover:text-red-500 hover:border-red-200 shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
           >
             <span className="material-symbols-outlined text-sm">close</span>
           </button>
@@ -245,7 +245,7 @@ const Library: React.FC<LibraryProps> = ({
                     <SortableItem
                       key={fav.id}
                       fav={fav}
-                      onSelect={() => onSelectVerse(fav.reference, fav.text, fav.version)}
+                      onSelect={() => onSelectVerse(fav.reference, fav.text, fav.version, fav.label)}
                       onRemove={() => onRemoveFavorite(fav.id)}
                       onRename={(newName) => onRenameFavorite(fav.id, newName)}
                     />
